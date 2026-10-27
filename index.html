@@ -59,14 +59,17 @@
             if(projects.length === 0) list.innerHTML = '<p style="color:#6b7280;">No projects yet. Create one above!</p>';
             
             projects.forEach((p, i) => {
-                const spaceLink = `${window.location.origin}/landing.html?id=${i}`;
+                // This line now correctly handles the folder name
+                const basePath = window.location.pathname.includes('/research-hub/') ? '/research-hub/' : '/';
+                const spaceLink = `${window.location.origin}${basePath}landing.html?id=${i}`;
+                
                 list.innerHTML += `
                     <div class="project-card">
                         <div class="project-title">${p.title}</div>
                         <div style="font-size: 0.9rem; color: #6b7280; margin-bottom: 1rem;">${p.desc || 'No description'}</div>
                         <div class="project-actions">
                             <button class="btn-sm btn-copy" onclick="copy('${spaceLink}')">Copy Link</button>
-                            <a href="responses.html?id=${i}" class="btn-sm btn-view">View Responses</a>
+                            <a href="${basePath}responses.html?id=${i}" class="btn-sm btn-view">View Responses</a>
                         </div>
                     </div>`;
             });
@@ -89,7 +92,6 @@
 
         function copy(text) { navigator.clipboard.writeText(text); alert('Link copied!'); }
         
-        // THIS FUNCTION CLEARS EVERYTHING
         function resetAllData() {
             if(confirm("Are you sure? This will delete ALL projects and responses.")) {
                 localStorage.removeItem('hubProjects');
