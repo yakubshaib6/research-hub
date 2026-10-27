@@ -59,7 +59,7 @@
             if(projects.length === 0) list.innerHTML = '<p style="color:#6b7280;">No projects yet. Create one above!</p>';
             
             projects.forEach((p, i) => {
-                // This line now correctly handles the folder name
+                // This logic ensures the link works on GitHub Pages folders
                 const basePath = window.location.pathname.includes('/research-hub/') ? '/research-hub/' : '/';
                 const spaceLink = `${window.location.origin}${basePath}landing.html?id=${i}`;
                 
@@ -93,9 +93,8 @@
         function copy(text) { navigator.clipboard.writeText(text); alert('Link copied!'); }
         
         function resetAllData() {
-            if(confirm("Are you sure? This will delete ALL projects and responses.")) {
+            if(confirm("Are you sure? This will delete ALL local project settings.")) {
                 localStorage.removeItem('hubProjects');
-                localStorage.removeItem('allResponses');
                 projects = [];
                 render();
                 alert("System has been reset.");
