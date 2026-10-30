@@ -2,70 +2,139 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Response Center</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; background: #f3f4f6; padding: 2rem; }
-        .container { max-width: 800px; margin: 0 auto; }
-        .card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-        .nav { margin-bottom: 1.5rem; }
-        .nav a { text-decoration: none; color: #6b7280; font-weight: 600; }
-        
-        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-        th { text-align: left; padding: 1rem; background: #f9fafb; color: #6b7280; font-size: 0.85rem; text-transform: uppercase; }
-        td { padding: 1rem; border-bottom: 1px solid #e5e7eb; color: #374151; }
+        body { font-family: 'Inter', sans-serif; background: #f3f4f6; padding: 2rem; color: #1f2937; }
+        .container { max-width: 900px; margin: 0 auto; }
+        .card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-top: 1rem; }
+        h1 { margin: 0 0 0.25rem; font-size: 1.5rem; }
+        .sub { color: #6b7280; font-size: 0.9rem; margin: 0 0 1rem; }
+        .toolbar { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; }
+        .btn { background: #f3f4f6; color: #374151; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 0.875rem; text-decoration: none; }
+        .btn-blue { background: #2563eb; color: white; }
+        table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+        th, td { padding: 0.9rem; text-align: left; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+        th { background: #f9fafb; color: #6b7280; font-weight: 600; font-size: 0.85rem; }
+        td.answer { white-space: pre-wrap; word-break: break-word; }
+        td.date { white-space: nowrap; color: #6b7280; font-size: 0.85rem; }
+        .btn-delete { background: #fee2e2; color: #991b1b; border: none; padding: 0.4rem 0.8rem; border-radius: 6px; cursor: pointer; font-family: inherit; }
+        .table-wrap { overflow-x: auto; }
+        * { box-sizing: border-box; }
+        h1 { word-break: break-word; }
+
+        @media (max-width: 640px) {
+            body { padding: 0.75rem; }
+            .card { padding: 1.25rem; }
+            .toolbar .btn { flex: 1 1 auto; padding: 0.7rem 1rem; }
+            table, tbody, tr, td { display: block; width: 100%; }
+            thead { display: none; }
+            tr { border: 1px solid #e5e7eb; border-radius: 10px; padding: 0.5rem 0.9rem; margin-bottom: 0.75rem; }
+            td { border-bottom: none; padding: 0.4rem 0; }
+            td[data-label]::before { content: attr(data-label); display: block; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #9ca3af; margin-bottom: 0.15rem; }
+            td.date { white-space: normal; }
+            .btn-delete { width: 100%; padding: 0.6rem; }
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="nav"><a href="index.html">← Back to Dashboard</a></div>
+        <a href="index.html" style="color:#6b7280; text-decoration:none;">&larr; Back</a>
         <div class="card">
-            <h1 id="pTitle">Loading Responses...</h1>
-            <table id="responseTable">
-                <thead>
-                    <tr><th>Date</th><th>Response</th></tr>
-                </thead>
-                <tbody id="tableBody"></tbody>
-            </table>
+            <h1 id="pTitle">Loading...</h1>
+            <p class="sub" id="pSub"></p>
+            <div class="toolbar">
+                <button class="btn btn-blue" id="copyBtn">Copy response link</button>
+                <button class="btn" id="refreshBtn">Refresh</button>
+                <button class="btn" id="csvBtn">Export CSV</button>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Date</th><th>Name</th><th>Response</th><th></th></tr></thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
         </div>
     </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+    <script src="config.js"></script>
     <script>
-        const SHEETDB_URL = "https://sheetdb.io/api/v1/yedcljothjgh6";
+        const id = new URLSearchParams(window.location.search).get('id');
+        const $ = el => document.getElementById(el);
+        let space = null;
+        let rows = [];
 
-        const params = new URLSearchParams(window.location.search);
-        const id = params.get('id');
-        const projects = JSON.parse(localStorage.getItem('hubProjects')) || [];
-        const p = projects[id];
+        async function init() {
+            if (!id) { $('pTitle').textContent = 'Invalid link'; return; }
 
-        if(p) {
-            document.getElementById('pTitle').innerText = `Responses: ${p.title}`;
-            loadData();
+            const { data, error } = await db.from('spaces').select('id, title, external_link').eq('id', id).maybeSingle();
+            if (error || !data) { $('pTitle').textContent = 'Space not found'; return; }
+            space = data;
+            $('pTitle').textContent = 'Responses: ' + space.title;
+            await load();
+            setInterval(load, 20000);
         }
 
-        async function loadData() {
-            try {
-                const res = await fetch(SHEETDB_URL);
-                const data = await res.json();
-                const tbody = document.getElementById('tableBody');
-                
-                const filtered = data.filter(row => row.Project === p.title);
-                
-                if(filtered.length === 0) {
-                    tbody.innerHTML = "<tr><td colspan='2' style='text-align:center;'>No responses yet.</td></tr>";
-                } else {
-                    tbody.innerHTML = '';
-                    filtered.reverse().forEach((row) => {
-                        tbody.innerHTML += `
-                            <tr>
-                                <td>${row.Date}</td>
-                                <td>${row.Response}</td>
-                            </tr>`;
-                    });
-                }
-            } catch (error) {
-                document.getElementById('tableBody').innerHTML = "<tr><td colspan='2'>Error loading data. Check SheetDB link.</td></tr>";
-            }
+        async function load() {
+            const { data, error } = await db
+                .from('responses')
+                .select('id, respondent_name, answer, created_at')
+                .eq('space_id', id)
+                .order('created_at', { ascending: false });
+            if (error) { $('tableBody').innerHTML = `<tr><td colspan="4">${esc(error.message)}</td></tr>`; return; }
+            rows = data;
+            $('pSub').textContent = rows.length + (rows.length === 1 ? ' response' : ' responses');
+            render();
         }
+
+        function render() {
+            const tbody = $('tableBody');
+            if (rows.length === 0) { tbody.innerHTML = '<tr><td colspan="4">No responses yet.</td></tr>'; return; }
+            tbody.innerHTML = rows.map(r => `
+                <tr>
+                    <td class="date" data-label="Date">${esc(new Date(r.created_at).toLocaleString())}</td>
+                    <td data-label="Name">${esc(r.respondent_name) || '<span style="color:#9ca3af;">Anonymous</span>'}</td>
+                    <td class="answer" data-label="Response">${esc(r.answer)}</td>
+                    <td><button class="btn-delete" data-id="${esc(r.id)}">Delete</button></td>
+                </tr>`).join('');
+        }
+
+        $('tableBody').addEventListener('click', async (e) => {
+            const rid = e.target.dataset.id;
+            if (!rid || !confirm('Delete this response?')) return;
+            const { error } = await db.from('responses').delete().eq('id', rid);
+            if (error) alert(error.message); else load();
+        });
+
+        $('refreshBtn').addEventListener('click', load);
+
+        $('copyBtn').addEventListener('click', async (e) => {
+            const link = pageUrl('landing.html', '?id=' + encodeURIComponent(id));
+            try { await navigator.clipboard.writeText(link); e.target.textContent = 'Copied!'; }
+            catch { window.prompt('Copy this link:', link); }
+            setTimeout(() => { e.target.textContent = 'Copy response link'; }, 1500);
+        });
+
+        $('csvBtn').addEventListener('click', () => {
+            // Leading = + - @ would be run as a formula in Excel, so neutralise it.
+            const cell = v => {
+                let s = String(v ?? '');
+                if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+                return '"' + s.replace(/"/g, '""') + '"';
+            };
+            const lines = [['Date', 'Name', 'Response'].map(cell).join(',')]
+                .concat(rows.map(r => [new Date(r.created_at).toISOString(), r.respondent_name, r.answer].map(cell).join(',')));
+            const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = (space ? space.title : 'responses').replace(/[^\w\-]+/g, '_') + '.csv';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        });
+
+        init();
     </script>
 </body>
 </html>
