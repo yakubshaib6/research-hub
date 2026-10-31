@@ -47,13 +47,21 @@
             <div class="toolbar">
                 <button class="btn btn-blue" id="copyBtn">Copy response link</button>
                 <button class="btn" id="refreshBtn">Refresh</button>
-                <button class="btn" id="csvBtn">Export CSV</button>
+                <button class="btn" id="csvBtn">Export direct responses CSV</button>
             </div>
+            <div id="sheetSection" style="display:none;">
+                <h3 style="margin:1rem 0 0.25rem;">Form responses <span id="sheetCount" style="color:#6b7280; font-weight:400; font-size:0.9rem;"></span></h3>
+                <p class="sub" id="sheetNote"></p>
+                <div class="table-wrap"><table><thead id="sheetHead"></thead><tbody id="sheetBody"></tbody></table></div>
+            </div>
+            <div id="directSection">
+            <h3 style="margin:1.5rem 0 0.25rem;">Direct responses</h3>
             <div class="table-wrap">
                 <table>
                     <thead><tr><th>Date</th><th>Name</th><th>Response</th><th></th></tr></thead>
                     <tbody id="tableBody"></tbody>
                 </table>
+            </div>
             </div>
         </div>
     </div>
@@ -69,7 +77,7 @@
         async function init() {
             if (!id) { $('pTitle').textContent = 'Invalid link'; return; }
 
-            const { data, error } = await db.from('spaces').select('id, title, external_link').eq('id', id).maybeSingle();
+            const { data, error } = await db.from('spaces').select('id, title, external_link, responses_csv_url').eq('id', id).maybeSingle();
             if (error || !data) { $('pTitle').textContent = 'Space not found'; return; }
             space = data;
             $('pTitle').textContent = 'Responses: ' + space.title;
@@ -77,7 +85,30 @@
             setInterval(load, 20000);
         }
 
+        async function loadSheet() {
+            const section = $('sheetSection');
+            if (!space || !space.responses_csv_url) { section.style.display = 'none'; return; }
+            section.style.display = 'block';
+            try {
+                const sep = space.responses_csv_url.includes('?') ? '&' : '?';
+                const res = await fetch(space.responses_csv_url + sep + '_=' + Date.now());
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const table = parseCsv(await res.text());
+                const head = table[0] || [];
+                const body = table.slice(1).reverse(); // newest first
+                $('sheetCount').textContent = '(' + body.length + ')';
+                $('sheetNote').textContent = 'Pulled from your Google Sheet. Google can take a few minutes to publish new answers.';
+                $('sheetHead').innerHTML = '<tr>' + head.map(h => `<th>${esc(h)}</th>`).join('') + '</tr>';
+                $('sheetBody').innerHTML = body.length === 0
+                    ? `<tr><td colspan="${Math.max(head.length, 1)}">No form responses yet.</td></tr>`
+                    : body.map(r => '<tr>' + head.map((h, i) => `<td class="answer" data-label="${esc(h)}">${esc(r[i])}</td>`).join('') + '</tr>').join('');
+            } catch (err) {
+                $('sheetNote').textContent = 'Could not load the sheet (' + err.message + '). Check that it is still published to the web as CSV.';
+            }
+        }
+
         async function load() {
+            loadSheet();
             const { data, error } = await db
                 .from('responses')
                 .select('id, respondent_name, answer, created_at')
@@ -85,11 +116,12 @@
                 .order('created_at', { ascending: false });
             if (error) { $('tableBody').innerHTML = `<tr><td colspan="4">${esc(error.message)}</td></tr>`; return; }
             rows = data;
-            $('pSub').textContent = rows.length + (rows.length === 1 ? ' response' : ' responses');
+            $('pSub').textContent = rows.length + (rows.length === 1 ? ' direct response' : ' direct responses');
             render();
         }
 
         function render() {
+            $('directSection').style.display = (rows.length === 0 && space && space.responses_csv_url) ? 'none' : 'block';
             const tbody = $('tableBody');
             if (rows.length === 0) { tbody.innerHTML = '<tr><td colspan="4">No responses yet.</td></tr>'; return; }
             tbody.innerHTML = rows.map(r => `

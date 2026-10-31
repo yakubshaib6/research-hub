@@ -34,6 +34,9 @@
         .btn-view { background: #dcfce7; color: #166534; }
         .btn-del { background: #fee2e2; color: #991b1b; }
         .msg { font-size: 0.875rem; margin: 0 0 1rem; min-height: 1.1rem; word-break: break-all; }
+        .help { font-size: 0.8rem; color: #6b7280; margin: -0.5rem 0 1rem; line-height: 1.5; }
+        .btn-sheet { background: #fef3c7; color: #92400e; }
+        .badge-off { background: #f3f4f6; color: #6b7280; margin-left: 0.4rem; }
         .msg.error { color: #b91c1c; }
         .msg.ok { color: #166534; }
 
@@ -55,7 +58,9 @@
         <div class="card">
             <h2>Create New Research Space</h2>
             <input type="text" id="title" placeholder="Research title (e.g., Campus Mobility)" maxlength="200">
-            <input type="url" id="externalLink" placeholder="Paste research link (optional, e.g., Google Form or paper)">
+            <input type="url" id="externalLink" placeholder="Paste research link (e.g., Google Form)">
+            <input type="url" id="sheetLink" placeholder="Responses sheet link (optional, can add later)">
+            <p class="help">To pull Google Form answers into this dashboard: in the form open Responses, Link to Sheets, then in that sheet choose File, Share, Publish to web, pick the responses tab and CSV, publish, and paste the link here.</p>
             <textarea id="desc" rows="2" placeholder="Brief description..." maxlength="2000"></textarea>
             <p id="createMsg" class="msg"></p>
             <button class="btn-primary" id="createBtn">Create Space and Generate Link</button>
@@ -76,7 +81,7 @@
         async function loadSpaces() {
             const { data, error } = await db
                 .from('spaces')
-                .select('id, title, description, external_link, created_at, responses(count)')
+                .select('id, title, description, external_link, responses_csv_url, created_at, responses(count)')
                 .order('created_at', { ascending: false });
             if (error) { $('projectList').innerHTML = `<p style="color:#b91c1c;">${esc(error.message)}</p>`; return; }
             spaces = data;
@@ -95,10 +100,11 @@
                 <div class="project-card">
                     <div class="project-title">${esc(s.title)}</div>
                     <div class="project-desc">${esc(s.description) || 'No description'}</div>
-                    <span class="badge">${count} ${count === 1 ? 'response' : 'responses'}</span>
+                    <span class="badge">${count} direct ${count === 1 ? 'response' : 'responses'}</span>${s.responses_csv_url ? '' : '<span class="badge badge-off">Sheet not connected</span>'}
                     <div class="project-actions">
                         <button class="btn-sm btn-copy" data-copy="${esc(s.id)}">Copy Link</button>
                         <a href="responses.html?id=${encodeURIComponent(s.id)}" class="btn-sm btn-view">View Responses</a>
+                        <button class="btn-sm btn-sheet" data-sheet="${esc(s.id)}">${s.responses_csv_url ? 'Change Sheet' : 'Connect Sheet'}</button>
                         <button class="btn-sm btn-del" data-del="${esc(s.id)}">Delete</button>
                     </div>
                 </div>`;
@@ -108,6 +114,16 @@
         $('projectList').addEventListener('click', async (e) => {
             const copyId = e.target.dataset.copy;
             const delId = e.target.dataset.del;
+            const sheetId = e.target.dataset.sheet;
+            if (sheetId) {
+                const input = window.prompt('Paste the Google Sheet "Publish to web" link (CSV):');
+                if (input === null) return;
+                const csv = normalizeSheetUrl(input.trim());
+                if (!csv) { alert('That is not a published Google Sheet link. In the sheet use File, Share, Publish to web, choose CSV, and paste the link it gives you.'); return; }
+                const { error } = await db.from('spaces').update({ responses_csv_url: csv }).eq('id', sheetId);
+                if (error) alert(error.message); else loadSpaces();
+                return;
+            }
             if (copyId) {
                 const link = pageUrl('landing.html', '?id=' + encodeURIComponent(copyId));
                 try { await navigator.clipboard.writeText(link); e.target.textContent = 'Copied!'; }
@@ -124,6 +140,9 @@
             const title = $('title').value.trim();
             const rawLink = $('externalLink').value.trim();
             const description = $('desc').value.trim();
+            const rawSheet = $('sheetLink').value.trim();
+            const sheet = rawSheet ? normalizeSheetUrl(rawSheet) : '';
+            if (rawSheet && !sheet) { setMsg($('createMsg'), 'The responses link must be a Google Sheet published to the web (File, Share, Publish to web, CSV).', 'error'); return; }
             if (!title) { setMsg($('createMsg'), 'A title is required.', 'error'); return; }
             const link = rawLink ? safeUrl(rawLink) : '';
             if (rawLink && !link) { setMsg($('createMsg'), 'The research link must start with http:// or https://', 'error'); return; }
@@ -131,7 +150,7 @@
             $('createBtn').disabled = true;
             const { data, error } = await db
                 .from('spaces')
-                .insert({ title, description: description || null, external_link: link || null })
+                .insert({ title, description: description || null, external_link: link || null, responses_csv_url: sheet || null })
                 .select('id')
                 .single();
             $('createBtn').disabled = false;
@@ -140,7 +159,7 @@
             const shareLink = pageUrl('landing.html', '?id=' + encodeURIComponent(data.id));
             try { await navigator.clipboard.writeText(shareLink); } catch {}
             setMsg($('createMsg'), 'Space created. Response link copied: ' + shareLink, 'ok');
-            $('title').value = ''; $('externalLink').value = ''; $('desc').value = '';
+            $('title').value = ''; $('externalLink').value = ''; $('sheetLink').value = ''; $('desc').value = '';
             loadSpaces();
         });
 
