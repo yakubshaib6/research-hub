@@ -37,6 +37,7 @@
         .help { font-size: 0.8rem; color: #6b7280; margin: -0.5rem 0 1rem; line-height: 1.5; }
         .btn-sheet { background: #fef3c7; color: #92400e; }
         .badge-off { background: #f3f4f6; color: #6b7280; margin-left: 0.4rem; }
+        .badge-new { background: #fee2e2; color: #991b1b; margin-left: 0.4rem; }
         .msg.error { color: #b91c1c; }
         .msg.ok { color: #166534; }
 
@@ -84,8 +85,40 @@
                 .select('id, title, description, external_link, responses_csv_url, created_at, responses(count)')
                 .order('created_at', { ascending: false });
             if (error) { $('projectList').innerHTML = `<p style="color:#b91c1c;">${esc(error.message)}</p>`; return; }
+            const prev = Object.fromEntries(spaces.map(p => [p.id, p.sheetCount]));
             spaces = data;
+            spaces.forEach(s => { if (prev[s.id] !== undefined) s.sheetCount = prev[s.id]; });
             render();
+            loadSheetCounts();
+        }
+
+        // Pull each connected sheet to count its answers, so totals show before opening a space.
+        async function loadSheetCounts() {
+            await Promise.all(spaces.filter(s => s.responses_csv_url).map(async s => {
+                try {
+                    const sep = s.responses_csv_url.includes('?') ? '&' : '?';
+                    const res = await fetch(s.responses_csv_url + sep + '_=' + Date.now());
+                    if (!res.ok) throw new Error();
+                    s.sheetCount = Math.max(0, parseCsv(await res.text()).length - 1);
+                } catch { s.sheetCount = null; }
+            }));
+            render();
+        }
+
+        function getSeen(id) {
+            try { return parseInt(localStorage.getItem('seen:' + id) || '0', 10) || 0; } catch { return 0; }
+        }
+
+        function badges(s) {
+            const direct = s.responses && s.responses[0] ? s.responses[0].count : 0;
+            if (s.responses_csv_url && s.sheetCount === undefined) return '<span class="badge badge-off">Counting...</span>';
+            if (s.responses_csv_url && s.sheetCount === null) return '<span class="badge badge-off">Could not read sheet</span>';
+            const total = direct + (s.sheetCount || 0);
+            const fresh = Math.max(0, total - getSeen(s.id));
+            let html = `<span class="badge">${total} ${total === 1 ? 'response' : 'responses'}</span>`;
+            if (fresh > 0) html += `<span class="badge badge-new">${fresh} new</span>`;
+            if (!s.responses_csv_url) html += '<span class="badge badge-off">Sheet not connected</span>';
+            return html;
         }
 
         function render() {
@@ -100,7 +133,7 @@
                 <div class="project-card">
                     <div class="project-title">${esc(s.title)}</div>
                     <div class="project-desc">${esc(s.description) || 'No description'}</div>
-                    <span class="badge">${count} direct ${count === 1 ? 'response' : 'responses'}</span>${s.responses_csv_url ? '' : '<span class="badge badge-off">Sheet not connected</span>'}
+                    ${badges(s)}
                     <div class="project-actions">
                         <button class="btn-sm btn-copy" data-copy="${esc(s.id)}">Copy Link</button>
                         <a href="responses.html?id=${encodeURIComponent(s.id)}" class="btn-sm btn-view">View Responses</a>
@@ -164,6 +197,8 @@
         });
 
         loadSpaces();
+        setInterval(loadSpaces, 60000);
+        window.addEventListener('pageshow', e => { if (e.persisted) loadSpaces(); });
     </script>
 </body>
 </html>

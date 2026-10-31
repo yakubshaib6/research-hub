@@ -47,7 +47,7 @@
             <div class="toolbar">
                 <button class="btn btn-blue" id="copyBtn">Copy response link</button>
                 <button class="btn" id="refreshBtn">Refresh</button>
-                <button class="btn" id="csvBtn">Export direct responses CSV</button>
+                <button class="btn" id="csvBtn">Export CSV</button>
             </div>
             <div id="sheetSection" style="display:none;">
                 <h3 style="margin:1rem 0 0.25rem;">Form responses <span id="sheetCount" style="color:#6b7280; font-weight:400; font-size:0.9rem;"></span></h3>
@@ -73,6 +73,15 @@
         const $ = el => document.getElementById(el);
         let space = null;
         let rows = [];
+        let sheetTable = [];
+        let sheetN = 0;
+
+        // Remember how many responses were seen so the dashboard can flag new ones.
+        function updateSummary() {
+            const total = rows.length + sheetN;
+            $('pSub').textContent = total + (total === 1 ? ' response' : ' responses');
+            try { localStorage.setItem('seen:' + id, String(total)); } catch {}
+        }
 
         async function init() {
             if (!id) { $('pTitle').textContent = 'Invalid link'; return; }
@@ -96,6 +105,9 @@
                 const table = parseCsv(await res.text());
                 const head = table[0] || [];
                 const body = table.slice(1).reverse(); // newest first
+                sheetTable = table;
+                sheetN = body.length;
+                updateSummary();
                 $('sheetCount').textContent = '(' + body.length + ')';
                 $('sheetNote').textContent = 'Pulled from your Google Sheet. Google can take a few minutes to publish new answers.';
                 $('sheetHead').innerHTML = '<tr>' + head.map(h => `<th>${esc(h)}</th>`).join('') + '</tr>';
@@ -116,7 +128,7 @@
                 .order('created_at', { ascending: false });
             if (error) { $('tableBody').innerHTML = `<tr><td colspan="4">${esc(error.message)}</td></tr>`; return; }
             rows = data;
-            $('pSub').textContent = rows.length + (rows.length === 1 ? ' direct response' : ' direct responses');
+            updateSummary();
             render();
         }
 
@@ -156,8 +168,8 @@
                 if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
                 return '"' + s.replace(/"/g, '""') + '"';
             };
-            const lines = [['Date', 'Name', 'Response'].map(cell).join(',')]
-                .concat(rows.map(r => [new Date(r.created_at).toISOString(), r.respondent_name, r.answer].map(cell).join(',')));
+            const lines = (sheetTable.length ? sheetTable.map(r => r.map(cell).join(',')) : [['Date', 'Name', 'Response'].map(cell).join(',')])
+                .concat((sheetTable.length ? [] : rows).map(r => [new Date(r.created_at).toISOString(), r.respondent_name, r.answer].map(cell).join(',')));
             const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
