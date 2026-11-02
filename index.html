@@ -197,7 +197,9 @@
         });
 
         loadSpaces();
-        setInterval(loadSpaces, 60000);
+        setInterval(loadSpaces, 15000);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) loadSpaces(); });
+        window.addEventListener('focus', loadSpaces);
         window.addEventListener('pageshow', e => { if (e.persisted) loadSpaces(); });
     </script>
 </body>

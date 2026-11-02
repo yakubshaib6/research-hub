@@ -91,7 +91,9 @@
             space = data;
             $('pTitle').textContent = 'Responses: ' + space.title;
             await load();
-            setInterval(load, 20000);
+            setInterval(load, 8000);
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+            window.addEventListener('focus', load);
         }
 
         async function loadSheet() {
