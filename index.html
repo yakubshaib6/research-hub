@@ -87,7 +87,7 @@
             if (error) { $('projectList').innerHTML = `<p style="color:#b91c1c;">${esc(error.message)}</p>`; return; }
             const prev = Object.fromEntries(spaces.map(p => [p.id, p.sheetCount]));
             spaces = data;
-            spaces.forEach(s => { if (prev[s.id] !== undefined) s.sheetCount = prev[s.id]; });
+            spaces.forEach(s => { if (prev[s.id] !== undefined) s.sheetCount = prev[s.id]; else if (getKnown(s.id)) s.sheetCount = getKnown(s.id); });
             render();
             loadSheetCounts();
         }
@@ -97,12 +97,23 @@
             await Promise.all(spaces.filter(s => s.responses_csv_url).map(async s => {
                 try {
                     const sep = s.responses_csv_url.includes('?') ? '&' : '?';
-                    const res = await fetch(s.responses_csv_url + sep + '_=' + Date.now());
+                    const res = await fetch(s.responses_csv_url + sep + '_=' + Math.floor(Date.now() / 30000));
                     if (!res.ok) throw new Error();
-                    s.sheetCount = Math.max(0, parseCsv(await res.text()).length - 1);
-                } catch { s.sheetCount = null; }
+                    const text = await res.text();
+                    if (text.trimStart().startsWith('<')) throw new Error();
+                    const n = Math.max(0, parseCsv(text).length - 1);
+                    s.sheetCount = Math.max(n, s.sheetCount || 0, getKnown(s.id)); // counts only grow, so a stale Google copy can't lower it
+                    setKnown(s.id, s.sheetCount);
+                } catch { if (s.sheetCount === undefined) s.sheetCount = getKnown(s.id) || null; }
             }));
             render();
+        }
+
+        function getKnown(id) {
+            try { return parseInt(localStorage.getItem('known:' + id) || '0', 10) || 0; } catch { return 0; }
+        }
+        function setKnown(id, n) {
+            try { localStorage.setItem('known:' + id, String(n)); } catch {}
         }
 
         function getSeen(id) {
@@ -197,7 +208,7 @@
         });
 
         loadSpaces();
-        setInterval(loadSpaces, 15000);
+        setInterval(loadSpaces, 30000);
         document.addEventListener('visibilitychange', () => { if (!document.hidden) loadSpaces(); });
         window.addEventListener('focus', loadSpaces);
         window.addEventListener('pageshow', e => { if (e.persisted) loadSpaces(); });

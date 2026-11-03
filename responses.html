@@ -91,20 +91,30 @@
             space = data;
             $('pTitle').textContent = 'Responses: ' + space.title;
             await load();
-            setInterval(load, 8000);
+            setInterval(load, 15000);
             document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
             window.addEventListener('focus', load);
         }
 
+        let sheetBusy = false;
         async function loadSheet() {
+            if (sheetBusy) return;
+            sheetBusy = true;
+            try { await loadSheetInner(); } finally { sheetBusy = false; }
+        }
+
+        async function loadSheetInner() {
             const section = $('sheetSection');
             if (!space || !space.responses_csv_url) { section.style.display = 'none'; return; }
             section.style.display = 'block';
             try {
                 const sep = space.responses_csv_url.includes('?') ? '&' : '?';
-                const res = await fetch(space.responses_csv_url + sep + '_=' + Date.now());
+                const res = await fetch(space.responses_csv_url + sep + '_=' + Math.floor(Date.now() / 30000));
                 if (!res.ok) throw new Error('HTTP ' + res.status);
-                const table = parseCsv(await res.text());
+                const text = await res.text();
+                if (text.trimStart().startsWith('<')) throw new Error('Google returned a page instead of data');
+                const table = parseCsv(text);
+                if (table.length < sheetTable.length) return; // stale copy from Google, keep what we already have
                 const head = table[0] || [];
                 const body = table.slice(1).reverse(); // newest first
                 sheetTable = table;
@@ -117,7 +127,7 @@
                     ? `<tr><td colspan="${Math.max(head.length, 1)}">No form responses yet.</td></tr>`
                     : body.map(r => '<tr>' + head.map((h, i) => `<td class="answer" data-label="${esc(h)}">${esc(r[i])}</td>`).join('') + '</tr>').join('');
             } catch (err) {
-                $('sheetNote').textContent = 'Could not load the sheet (' + err.message + '). Check that it is still published to the web as CSV.';
+                if (sheetTable.length === 0) $('sheetNote').textContent = 'Could not load the sheet (' + err.message + '). Check that it is still published to the web as CSV.';
             }
         }
 
